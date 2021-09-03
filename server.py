@@ -1,23 +1,41 @@
+from typing import Dict
 import trio
+import itertools
+import asyncio
 import json
 from trio_websocket import serve_websocket, ConnectionClosed
 
+route_data:Dict = {}
+
+with open("./coords.json", "r", encoding="utf-8") as file:
+    route_data = json.loads(file.read())
+
+
+
+async def form_message():    
+    for lat, long in  itertools.cycle(route_data["coordinates"]):        
+        yield {
+            "msgType": "Buses",
+            "buses": [
+                {"busId": "test", "lat": lat, "lng":long, "route": "156"},
+            ]
+        }
+        await trio.sleep(2.5)
+
+
+
 async def echo_server(request):
-    template = {
-        "msgType": "Buses",
-        "buses": [
-            {"busId": "c790сс", "lat": 55.7500, "lng": 37.600, "route": "120"},
-            {"busId": "a134aa", "lat": 55.7494, "lng": 37.621, "route": "670к"},
-        ]
-    }
+    
     ws = await request.accept()
+    c = form_message()
     while True:
-        try:
-            message = await ws.get_message()
-            await ws.send_message(json.dumps(template))
+        try:            
+            out_message = await c.__anext__()
+            print(out_message)
+            await ws.send_message(json.dumps(out_message))            
         except ConnectionClosed:
             break
-
+        
 async def main():
     await serve_websocket(echo_server, '127.0.0.1', 8000, ssl_context=None)
 
