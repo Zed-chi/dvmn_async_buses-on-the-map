@@ -1,35 +1,42 @@
-import json
-import trio
 import itertools
+import json
 from sys import stderr
+from typing import Dict
+
+import trio
 from trio_websocket import open_websocket_url
 
+from load_routes import load_routes
 
-route_data = {}
+URL = "ws://127.0.0.1:8080"
 
-with open("./coords.json", "r", encoding="utf-8") as file:
-    route_data = json.loads(file.read())
 
-async def form_message():    
-    for lat, long in  itertools.cycle(route_data["coordinates"]):        
+async def bus_status_gen(bus_json):
+    for lat, long in itertools.cycle(bus_json["coordinates"]):
         yield {
-            "busId": "c790сс",
+            "busId": bus_json["name"],
             "lat": lat,
             "lng": long,
-            "route": "156"
+            "route": bus_json["name"],
         }
         await trio.sleep(2.5)
 
-async def main():
-    data = form_message()
+
+async def run_bus(url: str, bus_id: str, route: Dict):
+    bus_status = bus_status_gen(route)
     while True:
         try:
-            async with open_websocket_url('ws://127.0.0.1:8080') as ws:
-                message = await data.__anext__()
-                await ws.send_message(
-                    json.dumps(message)
-                )            
+            async with open_websocket_url(url) as ws:
+                message = await bus_status.__anext__()
+                await ws.send_message(json.dumps(message))
         except OSError as ose:
-            print('Connection attempt failed: %s' % ose, file=stderr)
+            print("Connection attempt failed: %s" % ose, file=stderr)
+
+
+async def main():
+    async with trio.open_nursery() as nursery:
+        for route in load_routes():
+            nursery.start_soon(run_bus, URL, route["name"], route)
+
 
 trio.run(main)
