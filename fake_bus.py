@@ -3,12 +3,12 @@ import json
 from random import choice, randint
 from sys import stderr
 from typing import Dict
-from trio_websocket._impl import HandshakeError, ConnectionClosed
 
 import asyncclick as click
 # import click
 import trio
 from trio_websocket import open_websocket_url
+from trio_websocket._impl import ConnectionClosed, HandshakeError
 
 from load_routes import load_routes
 
@@ -82,7 +82,7 @@ async def run_bus(
     bus_status = bus_status_gen2(
         refresh_timeout, emulator_id, buses_per_route, route
     )
-    while True:        
+    while True:
         try:
             message = await bus_status.__anext__()
             await send_channel.send(message)
@@ -92,7 +92,7 @@ async def run_bus(
 
 
 async def send_to_server(url, receive_channel):
-    while True:        
+    while True:
         try:
             async with open_websocket_url(url) as ws:
                 print("connected")
@@ -102,7 +102,7 @@ async def send_to_server(url, receive_channel):
         except OSError as ose:
             print("Connection attempt failed: %s" % ose, file=stderr)
         except (HandshakeError, ConnectionClosed) as e:
-            
+
             print("waiting")
             await trio.sleep(5)
 
