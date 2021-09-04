@@ -6,10 +6,12 @@ from typing import Dict
 
 import trio
 from trio_websocket import open_websocket_url
+
 from load_routes import load_routes
 
 URL = "ws://127.0.0.1:8080"
-BUSES_ON_ROUTE = 5
+BUSES_ON_ROUTE = 15
+INTERVAL_TIME = 5
 
 
 async def bus_status_gen(bus_json):
@@ -36,7 +38,7 @@ def cycle(arr, start_id=0):
         yield value
 
 
-async def bus_status_gen2(bus_json):
+async def bus_status_gen2(bus_json)-> Dict:
     buses_start_positions = list(
         range(
             0,
@@ -60,25 +62,37 @@ async def bus_status_gen2(bus_json):
                 "lng": position[1],
                 "route": bus_json["name"],
             }
-            await trio.sleep(2)
+            await trio.sleep(randint(1,INTERVAL_TIME))
 
 
-async def run_bus(url: str, bus_id: str, route: Dict):
-    # bus_status = bus_status_gen(route)
+async def run_bus(send_channel, name, route: Dict):    
     bus_status = bus_status_gen2(route)
     while True:
-        try:
-            async with open_websocket_url(url) as ws:
-                message = await bus_status.__anext__()
-                await ws.send_message(json.dumps(message))
+        try:            
+            message = await bus_status.__anext__()
+            await send_channel.send(message)
         except OSError as ose:
             print("Connection attempt failed: %s" % ose, file=stderr)
 
 
-async def main():
+async def send_to_server(url, receive_channel):
+    async with open_websocket_url(url) as ws:
+        while True:
+            try:
+                async for value in receive_channel:
+                    await ws.send_message(json.dumps(value))
+            except OSError as ose:
+                print("Connection attempt failed: %s" % ose, file=stderr)
+
+
+async def main():   
     async with trio.open_nursery() as nursery:
+        send_channel, receive_channel = trio.open_memory_channel(0)
+
         for route in load_routes():
-            nursery.start_soon(run_bus, URL, route["name"], route)
+            nursery.start_soon(run_bus, send_channel, route["name"], route)
+        
+        nursery.start_soon(send_to_server, URL, receive_channel)       
 
 
 trio.run(main)
