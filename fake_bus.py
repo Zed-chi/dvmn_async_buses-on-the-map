@@ -3,10 +3,12 @@ import json
 from random import choice, randint
 from sys import stderr
 from typing import Dict
+
 import asyncclick as click
-#import click
+# import click
 import trio
 from trio_websocket import open_websocket_url
+from trio_websocket._impl import ConnectionClosed, HandshakeError
 
 from load_routes import load_routes
 
@@ -82,20 +84,27 @@ async def run_bus(
     )
     while True:
         try:
-            message = await bus_status.__anext__()            
+            message = await bus_status.__anext__()
             await send_channel.send(message)
+
         except OSError as ose:
             print("Connection attempt failed: %s" % ose, file=stderr)
 
 
 async def send_to_server(url, receive_channel):
-    async with open_websocket_url(url) as ws:        
-        print("send cycle")
-        try:                                
-            async for value in receive_channel:                    
-                await ws.send_message(json.dumps(value))
+    while True:
+        try:
+            async with open_websocket_url(url) as ws:
+                print("connected")
+                async for value in receive_channel:
+                    await ws.send_message(json.dumps(value))
+
         except OSError as ose:
             print("Connection attempt failed: %s" % ose, file=stderr)
+        except (HandshakeError, ConnectionClosed) as e:
+            print(e.__class__.__name__)
+            print("waiting")
+            await trio.sleep(5)
 
 
 async def main(
@@ -108,9 +117,9 @@ async def main(
     v,
 ):
     routes = list(load_routes())
-    if routes_number < len(routes) and routes_number != 0 :
+    if routes_number < len(routes) and routes_number != 0:
         routes = routes[:routes_number]
-    
+
     async with trio.open_nursery() as nursery:
         send_channel, receive_channel = trio.open_memory_channel(0)
 
@@ -126,7 +135,9 @@ async def main(
             )
 
         for i in range(websockets_number):
-            nursery.start_soon(send_to_server, ("ws://"+server), receive_channel)
+            nursery.start_soon(
+                send_to_server, ("ws://" + server), receive_channel
+            )
 
 
 @click.command()
@@ -137,7 +148,9 @@ async def main(
     default=BUSES_ON_ROUTE,
     help="количество автобусов на каждом маршруте",
 )
-@click.option("--websockets_number", default=1, help="количество открытых веб-сокетов")
+@click.option(
+    "--websockets_number", default=1, help="количество открытых веб-сокетов"
+)
 @click.option(
     "--emulator_id",
     default="",
@@ -149,21 +162,29 @@ async def main(
     help="задержка в обновлении координат сервера",
 )
 @click.option("--v", default=False, help="настройка логирования")
-def run(server,
+def run(
+    server,
     routes_number,
     buses_per_route,
     websockets_number,
     emulator_id,
     refresh_timeout,
-    v):
-    trio.run(main,server,
-    routes_number,
-    buses_per_route,
-    websockets_number,
-    emulator_id,
-    refresh_timeout,
-    v)
+    v,
+):
+    trio.run(
+        main,
+        server,
+        routes_number,
+        buses_per_route,
+        websockets_number,
+        emulator_id,
+        refresh_timeout,
+        v,
+    )
 
 
 if __name__ == "__main__":
     run()
+
+
+# todo loggging
