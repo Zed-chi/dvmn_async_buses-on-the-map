@@ -19,7 +19,7 @@ async def bus_status_gen(bus_json):
             "lng": long,
             "route": bus_json["name"],
         }
-        await trio.sleep(2.5)
+        await trio.sleep(5)
 
 
 async def run_bus(url: str, bus_id: str, route: Dict):
