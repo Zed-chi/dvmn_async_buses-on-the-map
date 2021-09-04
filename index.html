@@ -114,7 +114,7 @@
 
     const centerOfMoscow = [55.75, 37.6];
     var map = L.map('mapid', {
-      minZoom: 14,  // автобусов слишком много, нельзя смотреть всю Москву разом
+      minZoom: 10,  // автобусов слишком много, нельзя смотреть всю Москву разом
     }).setView(centerOfMoscow, 14);
 
     L.tileLayer.provider('OpenStreetMap.Mapnik').addTo(map);
