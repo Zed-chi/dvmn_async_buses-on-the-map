@@ -31,7 +31,7 @@ BUSES = {}
 
 async def echo_server(request):
     """
-        Accepts: json with "busId","lat","lng","route"
+    Accepts: json with "busId","lat","lng","route"
     """
     ws = await request.accept()
     while True:
@@ -47,26 +47,28 @@ async def echo_server(request):
 
 async def talk_to_browser(request):
     """
-        Sends: buses json
+    Sends: buses json
     """
     ws = await request.accept()
     while True:
         try:
-            print("got client req")            
-            await ws.send_message(json.dumps(
-                {
-                "msgType": "Buses",
-                "buses": list(BUSES.values())
-                }
-            ))
+            print("got client req")
+            await ws.send_message(
+                json.dumps({"msgType": "Buses", "buses": list(BUSES.values())})
+            )
             await trio.sleep(2.5)
         except ConnectionClosed:
             break
 
+
 async def main():
     async with trio.open_nursery() as nursery:
-        nursery.start_soon(serve_websocket,echo_server, "127.0.0.1", 8080, None)
-        nursery.start_soon(serve_websocket,talk_to_browser, "127.0.0.1", 8000, None)    
+        nursery.start_soon(
+            serve_websocket, echo_server, "127.0.0.1", 8080, None
+        )
+        nursery.start_soon(
+            serve_websocket, talk_to_browser, "127.0.0.1", 8000, None
+        )
 
 
 trio.run(main)

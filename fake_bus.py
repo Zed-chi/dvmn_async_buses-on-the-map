@@ -1,16 +1,16 @@
 import itertools
 import json
+from random import randint
 from sys import stderr
 from typing import Dict
-from random import randint
 
 import trio
 from trio_websocket import open_websocket_url
-
 from load_routes import load_routes
 
 URL = "ws://127.0.0.1:8080"
 BUSES_ON_ROUTE = 5
+
 
 async def bus_status_gen(bus_json):
     for lat, long in itertools.cycle(bus_json["coordinates"]):
@@ -22,10 +22,11 @@ async def bus_status_gen(bus_json):
         }
         await trio.sleep(5)
 
+
 def cycle(arr, start_id=0):
     counter = start_id
     while True:
-        if counter == len(arr)-1:
+        if counter == len(arr) - 1:
             value = arr[counter]
             counter = 0
         else:
@@ -37,12 +38,18 @@ def cycle(arr, start_id=0):
 
 async def bus_status_gen2(bus_json):
     buses_start_positions = list(
-        range(0, len(bus_json["coordinates"]),
-            len(bus_json["coordinates"]) // BUSES_ON_ROUTE)
+        range(
+            0,
+            len(bus_json["coordinates"]),
+            len(bus_json["coordinates"]) // BUSES_ON_ROUTE,
+        ),
     )
-    bus_names = [f"{bus_json['name']}{randint(0,10000)}" for _ in range(BUSES_ON_ROUTE)]
+    bus_names = [
+        f"{bus_json['name']}{randint(0,10000)}" for _ in range(BUSES_ON_ROUTE)
+    ]
     bus_positions_gens = [
-        cycle(bus_json["coordinates"],start) for start in buses_start_positions
+        cycle(bus_json["coordinates"], start)
+        for start in buses_start_positions
     ]
     while True:
         for i in range(BUSES_ON_ROUTE):
@@ -55,8 +62,9 @@ async def bus_status_gen2(bus_json):
             }
             await trio.sleep(2)
 
+
 async def run_bus(url: str, bus_id: str, route: Dict):
-    #bus_status = bus_status_gen(route)
+    # bus_status = bus_status_gen(route)
     bus_status = bus_status_gen2(route)
     while True:
         try:
