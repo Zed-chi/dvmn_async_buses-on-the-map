@@ -1,48 +1,19 @@
 import json
-from dataclasses import asdict, dataclass
+import logging
+from dataclasses import asdict
+from json.decoder import JSONDecodeError
+
+import asyncclick as click
 import trio
 from trio_websocket import ConnectionClosed, serve_websocket
 
-
-@dataclass
-class Bus:
-    busId:str
-    lat:float
-    lng:float
-    route:str
-
-
-@dataclass
-class WindowBounds:
-    east_lng:float
-    north_lat:float
-    south_lat:float
-    west_lng:float
-
-class Frame:
-    def __init__(self):
-        self.bounds = None
-
-    def get_bounds(self):
-        return self.bounds
-    
-    def set_bounds(self, bounds:WindowBounds):
-        self.bounds = bounds
-    
-    def is_inside(self, bus:Bus):
-        lat = bus.lat
-        lng = bus.lng
-        if lat < self.bounds.north_lat and lat > self.bounds.south_lat and\
-            lng > self.bounds.west_lng and lng < self.bounds.east_lng:
-            return True
-        else:
-            return False
-
+from utils import Bus, Frame, WindowBounds
+from validators import get_validated_bus_data, get_validated_map_frame
 
 BUSES = {}
 
 
-async def echo_server(request):
+async def start_bus_data_share(request):
     """
     Accepts: json with "busId","lat","lng","route"
     """
@@ -50,93 +21,125 @@ async def echo_server(request):
     while True:
         try:
             message = await ws.get_message()
-            json_data = json.loads(message)
-            b_id = json_data["busId"]
-            BUSES[b_id] = Bus(**json_data)
-            #BUSES[b_id] = Bus(**json_data)
-            print(f"got {b_id}")
-        except ConnectionClosed:
-            break
+            json_data = get_validated_bus_data(message)
+            if json_data is None:
+                continue
+            else:
+                await ws.send_message("ok")
+            bus_id = json_data["busId"]
+            BUSES[bus_id] = Bus(**json_data)
+            logging.info(f"got {bus_id}")
+        except ValueError as e:
+            logging.info(f"bus = {e}")
+            await ws.send_message(
+                json.dumps({"bus_error": str(e), "msgType": "Error"})
+            )
+        except JSONDecodeError:
+            logging.info("Invalid JSON Data")
+            await ws.send_message(
+                '{"bus_error": "Invalid JSON Data", "msgType": "Error"}'
+            )
 
 
-async def talk_to_browser(request):
+async def start_browser_data_share(request):
     """
     Sends: buses json
-    """ 
-    frame = Frame()           
+    """
+    frame = Frame()
     ws = await request.accept()
     async with trio.open_nursery() as nursery:
         nursery.start_soon(get_map_frame, ws, frame)
         nursery.start_soon(send_buses_data, ws, frame)
 
 
-async def send_buses_data(ws, frame:Frame):
+async def send_buses_data(ws, frame: Frame):
+    while True:
+        logging.info("got browser request")
+        if frame.get_bounds() is not None:
+            filtered_buses = filter(frame.is_inside, BUSES.values())
+
+            await ws.send_message(
+                json.dumps(
+                    {
+                        "msgType": "Buses",
+                        "buses": [asdict(bus) for bus in filtered_buses],
+                    }
+                )
+            )
+        else:
+            logging.info("frame is empty")
+        await trio.sleep(2.5)
+
+
+async def get_map_frame(ws, frame: Frame):
     while True:
         try:
-            print("got client req")            
-            if frame.get_bounds() != None:
-                filtered_buses = filter(frame.is_inside, BUSES.values())
-
-                await ws.send_message(
-                    json.dumps({"msgType": "Buses", "buses": [asdict(bus) for bus in filtered_buses]})
-                )
-            else:
-                print("frame is none")
-            await trio.sleep(2.5)
-        except ConnectionClosed:
-            break
-
-
-def check_position(bounds:WindowBounds):
-    def check(bus_data:Bus):        
-        lat = bus_data.lat
-        lng = bus_data.lng
-        if lat < bounds.north_lat and lat > bounds.south_lat and\
-            lng > bounds.west_lng and lng < bounds.east_lng:
-            return True
-        else:
-            return False
-    return check
+            message = await ws.get_message()
+            logging.info("got frame from browser")
+            json_data = get_validated_map_frame(message)
+            if json_data is None or (not "data" in json_data):
+                continue
+            frame.update(WindowBounds(**json_data["data"]))
+        except ValueError as e:
+            logging.info(f"map = {e}")
+            await ws.send_message(
+                json.dumps({"frame_error": str(e), "msgType": "Error"})
+            )
+        except JSONDecodeError:
+            logging.info("Invalid JSON Data")
+            await ws.send_message(
+                '{"frame_error": "Invalid JSON Data", "msgType": "Error"}'
+            )
 
 
-async def get_map_frame(ws, frame:Frame):
-    while True:
-        message = await ws.get_message()
-        print("got frame")
-        json_data = json.loads(message)
-        if not "data" in json_data:
-            continue
-        frame.set_bounds(WindowBounds(**json_data["data"]))
-
-
-async def sensors_connection():
+async def bus_connection(port):
     while True:
         try:
             async with trio.open_nursery() as nursery:
                 nursery.start_soon(
-                    serve_websocket, echo_server, "127.0.0.1", 8080, None
-                )                
-        except Exception as e:
-            print("sensors problem")
-            await trio.sleep(2)
-
-
-async def browser_connection():
-    while True:
-        try:
-            async with trio.open_nursery() as nursery:                
-                nursery.start_soon(
-                    serve_websocket, talk_to_browser, "127.0.0.1", 8000, None
+                    serve_websocket,
+                    start_bus_data_share,
+                    "127.0.0.1",
+                    port,
+                    None,
                 )
         except ConnectionClosed:
-            print("closed browser")
-            await trio.sleep(2)
+            logging.info("sensors connection problem")
 
 
-async def main():    
+async def browser_connection(port):
+    while True:
+        try:
+            async with trio.open_nursery() as nursery:
+                nursery.start_soon(
+                    serve_websocket,
+                    start_browser_data_share,
+                    "127.0.0.1",
+                    port,
+                    None,
+                )
+        except ConnectionClosed:
+            logging.info("closed browser")
+
+
+async def main(bus_port: int, browser_port: int, v: bool):
+    if v:
+        logging.basicConfig(level=logging.INFO)
+    else:
+        logging.basicConfig(level=logging.ERROR)
+
     async with trio.open_nursery() as nursery:
-        nursery.start_soon(sensors_connection)
-        nursery.start_soon(browser_connection)
+        nursery.start_soon(bus_connection, bus_port)
+        nursery.start_soon(browser_connection, browser_port)
 
 
-trio.run(main)
+@click.command()
+@click.option("--bus_port", default=8080, help="порт для имитатора автобусов")
+@click.option("--browser_port", default=8000, help=" порт для браузера")
+@click.option("--v", default=False, help="настройка логирования")
+def run(bus_port: int, browser_port: int, v: bool):
+    trio.run(main, bus_port, browser_port, v)
+
+
+if __name__ == "__main__":
+    run()
