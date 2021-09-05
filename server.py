@@ -1,42 +1,45 @@
 import json
-
+from dataclasses import asdict, dataclass
 import trio
 from trio_websocket import ConnectionClosed, serve_websocket
 
-"""
-To Frontend=>
-{
-  "msgType": "Buses",
-  "buses": [
-    {"busId": "c790сс", "lat": 55.7500, "lng": 37.600, "route": "120"},
-    {"busId": "a134aa", "lat": 55.7494, "lng": 37.621, "route": "670к"},
-  ]
-}
-"""
 
-"""
-From frontend=>
-{
-  "msgType": "newBounds",
-  "data": {
-    "east_lng": 37.65563964843751,
-    "north_lat": 55.77367652953477,
-    "south_lat": 55.72628839374007,
-    "west_lng": 37.54440307617188,
-  },
-}
-"""
-BUSES = {}
+@dataclass
+class Bus:
+    busId:str
+    lat:float
+    lng:float
+    route:str
+
+
+@dataclass
+class WindowBounds:
+    east_lng:float
+    north_lat:float
+    south_lat:float
+    west_lng:float
 
 class Frame:
     def __init__(self):
-        self.data = None
+        self.bounds = None
 
-    def get_data(self):
-        return self.data
+    def get_bounds(self):
+        return self.bounds
     
-    def set_data(self, data):
-        self.data = data
+    def set_bounds(self, bounds:WindowBounds):
+        self.bounds = bounds
+    
+    def is_inside(self, bus:Bus):
+        lat = bus.lat
+        lng = bus.lng
+        if lat < self.bounds.north_lat and lat > self.bounds.south_lat and\
+            lng > self.bounds.west_lng and lng < self.bounds.east_lng:
+            return True
+        else:
+            return False
+
+
+BUSES = {}
 
 
 async def echo_server(request):
@@ -49,7 +52,8 @@ async def echo_server(request):
             message = await ws.get_message()
             json_data = json.loads(message)
             b_id = json_data["busId"]
-            BUSES[b_id] = json_data
+            BUSES[b_id] = Bus(**json_data)
+            #BUSES[b_id] = Bus(**json_data)
             print(f"got {b_id}")
         except ConnectionClosed:
             break
@@ -66,17 +70,15 @@ async def talk_to_browser(request):
         nursery.start_soon(send_buses_data, ws, frame)
 
 
-         
-
 async def send_buses_data(ws, frame:Frame):
     while True:
         try:
-            print("got client req")
-            frame_data = frame.get_data()
-            if frame_data != None:
-                filtered_buses = filter(check_position(frame_data), BUSES.values())
+            print("got client req")            
+            if frame.get_bounds() != None:
+                filtered_buses = filter(frame.is_inside, BUSES.values())
+
                 await ws.send_message(
-                    json.dumps({"msgType": "Buses", "buses": list(filtered_buses)})
+                    json.dumps({"msgType": "Buses", "buses": [asdict(bus) for bus in filtered_buses]})
                 )
             else:
                 print("frame is none")
@@ -85,18 +87,17 @@ async def send_buses_data(ws, frame:Frame):
             break
 
 
-def check_position(frame):
-    def check(bus_data): 
-        print(bus_data)
-        lat =bus_data["lat"] 
-        lng = bus_data["lng"]
-        if lat < frame["north_lat"] and lat > frame["west_lng"] and\
-            lng > frame["west_lng"] and lng < frame["east_lng"]:
+def check_position(bounds:WindowBounds):
+    def check(bus_data:Bus):        
+        lat = bus_data.lat
+        lng = bus_data.lng
+        if lat < bounds.north_lat and lat > bounds.south_lat and\
+            lng > bounds.west_lng and lng < bounds.east_lng:
             return True
         else:
             return False
     return check
-    
+
 
 async def get_map_frame(ws, frame:Frame):
     while True:
@@ -105,15 +106,7 @@ async def get_map_frame(ws, frame:Frame):
         json_data = json.loads(message)
         if not "data" in json_data:
             continue
-        frame.set_data(
-            {
-                "east_lng": json_data["data"]["east_lng"],
-                "north_lat": json_data["data"]["north_lat"],
-                "south_lat": json_data["data"]["south_lat"],
-                "west_lng": json_data["data"]["west_lng"],  
-            }
-        )
-            
+        frame.set_bounds(WindowBounds(**json_data["data"]))
 
 
 async def sensors_connection():
