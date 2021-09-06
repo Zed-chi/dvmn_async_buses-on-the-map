@@ -144,24 +144,24 @@ async def main(
     if routes_number < len(routes) and routes_number != 0:
         routes = routes[:routes_number]
 
-    channels = Channels_container(websockets_number)
+    channels_container = Channels_container(websockets_number)
     async with trio.open_nursery() as nursery:
 
         for _ in range(websockets_number):
             nursery.start_soon(
                 start_server_data_share,
                 ("ws://" + server),
-                channels.get_receive_channel(),
+                channels_container.get_receive_channel(),
             )
 
         for route in routes:
-            generators = get_bus_info_generator_list(
+            bus_info_gen_list = get_bus_info_generator_list(
                 refresh_timeout, emulator_id, buses_per_route, route
             )
-            for bus_info_gen in generators:
+            for bus_info_gen in bus_info_gen_list:
                 nursery.start_soon(
                     run_bus,
-                    channels.get_send_channel(),
+                    channels_container.get_send_channel(),
                     bus_info_gen,
                 )
 
