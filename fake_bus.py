@@ -11,7 +11,6 @@ import asyncclick as click
 import trio
 from trio_websocket import open_websocket_url
 from trio_websocket._impl import ConnectionClosed, HandshakeError
-
 from load_routes import load_routes
 from utils import Channels_container
 
@@ -25,8 +24,8 @@ def make_bus_name(route_id, emulator_id):
     return f"{route_id}{emu_part}{num_part}"
 
 
-def coordinates_generator(items: Iterable, start_id: int = 0):
-    coordinates = items[start_id:] + items[:start_id]
+def coordinates_generator(coordinates: Iterable, start_id: int = 0):
+    coordinates = coordinates[start_id:] + coordinates[:start_id]
     for item in cycle(coordinates):
         yield item
 
