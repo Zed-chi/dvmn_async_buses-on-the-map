@@ -20,14 +20,14 @@ async def start_bus_data_share(request):
     ws = await request.accept()
     while True:
         try:
-            message = await ws.get_message()
-            json_data = get_validated_bus_data(message)
-            if json_data is None:
+            bus_json = await ws.get_message()
+            bus_dict = get_validated_bus_data(bus_json)
+            if bus_dict is None:
                 continue
             else:
                 await ws.send_message("ok")
-            bus_id = json_data["busId"]
-            BUSES[bus_id] = Bus(**json_data)
+            bus_id = bus_dict["busId"]
+            BUSES[bus_id] = Bus(**bus_dict)
             logging.info(f"got {bus_id}")
         except ValueError as e:
             logging.info(f"bus = {e}")
@@ -44,6 +44,7 @@ async def start_bus_data_share(request):
 async def start_browser_data_share(request):
     """
     Sends: buses json
+    Receives: Browser Frame with coordinatess
     """
     frame = Frame()
     ws = await request.accept()
@@ -74,12 +75,12 @@ async def send_buses_data(ws, frame: Frame):
 async def get_map_frame(ws, frame: Frame):
     while True:
         try:
-            message = await ws.get_message()
+            frame_json = await ws.get_message()
             logging.info("got frame from browser")
-            json_data = get_validated_map_frame(message)
-            if json_data is None or (not "data" in json_data):
+            frame_dict = get_validated_map_frame(frame_json)
+            if frame_dict is None or (not "data" in frame_dict):
                 continue
-            frame.update(WindowBounds(**json_data["data"]))
+            frame.update(WindowBounds(**frame_dict["data"]))
         except ValueError as e:
             logging.info(f"map = {e}")
             await ws.send_message(

@@ -18,14 +18,14 @@ async def frame():
 async def position():
     try:
         async with open_websocket_url("ws://127.0.0.1:8080") as ws:
-            invalid_json = {
+            invalid_dict = {
                 "info": "test",
                 "busId": "123",
                 "lat": 123.123,
                 "lng": 789.123,
                 "route": "123",
             }
-            await ws.send_message(json.dumps(invalid_json))
+            await ws.send_message(json.dumps(invalid_dict))
             print("done")
             message = await ws.get_message()
             print(message)

@@ -37,19 +37,19 @@ async def bus_info_generator(
     refresh_timeout,
     emulator_id,
     buses_per_route,
-    route_json,
+    bus_info_dict,
 ):
     buses_start_positions = get_positions_in_range(
-        route_json["coordinates"],
+        bus_info_dict["coordinates"],
         buses_per_route,
     )
 
     bus_names = [
-        f"{route_json['name']}{'-'+str(emulator_id) if emulator_id else ''}{'-'+str(randint(0,10000))}"
+        f"{bus_info_dict['name']}{'-'+str(emulator_id) if emulator_id else ''}{'-'+str(randint(0,10000))}"
         for _ in range(buses_per_route)
     ]
     bus_position_generators = [
-        cycle(route_json["coordinates"], start)
+        cycle(bus_info_dict["coordinates"], start)
         for start in buses_start_positions
     ]
 
@@ -60,7 +60,7 @@ async def bus_info_generator(
                 "busId": bus_names[idx],
                 "lat": position[0],
                 "lng": position[1],
-                "route": route_json["name"],
+                "route": bus_info_dict["name"],
             }
             await trio.sleep(refresh_timeout)
 
