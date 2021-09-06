@@ -6,6 +6,7 @@ from typing import Iterable
 
 import asyncclick as click
 import trio
+from utils import Channels_container
 from trio_websocket import open_websocket_url
 from trio_websocket._impl import ConnectionClosed, HandshakeError
 
@@ -133,25 +134,28 @@ async def main(
     if routes_number < len(routes) and routes_number != 0:
         routes = routes[:routes_number]
 
+    channels = Channels_container(websockets_number)
     async with trio.open_nursery() as nursery:
-        send_channel, receive_channel = trio.open_memory_channel(0)
+        
         for _ in range(websockets_number):
             nursery.start_soon(
                 send_to_server,
                 ("ws://" + server),
-                receive_channel,
+                channels.get_receive_channel(),
         )
 
         for route in routes:
             nursery.start_soon(
                 run_bus,
-                send_channel,
+                channels.get_send_channel(),
                 emulator_id,
                 refresh_timeout,
                 buses_per_route,
                 route["name"],
                 route,
             )
+
+
 
 
 @click.command()
