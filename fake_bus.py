@@ -135,6 +135,12 @@ async def main(
 
     async with trio.open_nursery() as nursery:
         send_channel, receive_channel = trio.open_memory_channel(0)
+        for _ in range(websockets_number):
+            nursery.start_soon(
+                send_to_server,
+                ("ws://" + server),
+                receive_channel,
+        )
 
         for route in routes:
             nursery.start_soon(
@@ -146,13 +152,6 @@ async def main(
                 route["name"],
                 route,
             )
-
-        for _ in range(websockets_number):
-            nursery.start_soon(
-                send_to_server,
-                ("ws://" + server),
-                receive_channel,
-            )        
 
 
 @click.command()
