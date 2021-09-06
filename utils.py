@@ -30,12 +30,7 @@ class Frame:
     def is_inside(self, bus: Bus):
         lat = bus.lat
         lng = bus.lng
-        if (
-            lat < self.bounds.north_lat
-            and lat > self.bounds.south_lat
-            and lng > self.bounds.west_lng
-            and lng < self.bounds.east_lng
-        ):
-            return True
-        else:
-            return False
+        return (lat < self.bounds.north_lat\
+            and lat > self.bounds.south_lat\
+            and lng > self.bounds.west_lng\
+            and lng < self.bounds.east_lng)        
