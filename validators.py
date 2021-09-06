@@ -16,7 +16,7 @@ def get_validated_map_frame(frame_json):
         for key, value in frame_dict["data"].items():
             if key not in ["east_lng", "north_lat", "south_lat", "west_lng"]:
                 raise ValueError("Invalid key in json[data]")
-                
+
             if not isinstance(value, float):
                 raise ValueError("Invalid position type")
 

@@ -1,6 +1,8 @@
 from dataclasses import dataclass
 from itertools import cycle
+
 import trio
+
 
 @dataclass
 class Bus:
@@ -31,13 +33,15 @@ class Frame:
     def is_inside(self, bus: Bus):
         lat = bus.lat
         lng = bus.lng
-        return (lat < self.bounds.north_lat\
-            and lat > self.bounds.south_lat\
-            and lng > self.bounds.west_lng\
-            and lng < self.bounds.east_lng)        
+        return (
+            lat < self.bounds.north_lat
+            and lat > self.bounds.south_lat
+            and lng > self.bounds.west_lng
+            and lng < self.bounds.east_lng
+        )
 
 
-class Channels_container():
+class Channels_container:
     def __init__(self, num) -> None:
         self.receive_channels = []
         self.send_channels = []
@@ -47,13 +51,13 @@ class Channels_container():
             self.send_channels.append(s)
         self.send_gen = self.channel_generator(self.send_channels)
         self.recv_gen = self.channel_generator(self.receive_channels)
-    
+
     def channel_generator(self, channels):
         for channel in cycle(channels):
             yield channel
-    
+
     def get_receive_channel(self):
         return next(self.recv_gen)
-    
+
     def get_send_channel(self):
         return next(self.send_gen)
