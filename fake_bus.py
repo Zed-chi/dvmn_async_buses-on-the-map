@@ -1,91 +1,99 @@
 import json
 import logging
+from itertools import cycle
+from math import ceil
 from random import randint
 from sys import stderr
 from typing import Iterable
+import async_generator
 
 import asyncclick as click
 import trio
-from utils import Channels_container
 from trio_websocket import open_websocket_url
 from trio_websocket._impl import ConnectionClosed, HandshakeError
 
 from load_routes import load_routes
+from utils import Channels_container
 
 RECONNECT_INTERVAL = 5
 
 
-def cycle(arr: Iterable, start_id: int = 0):
-    counter = start_id
-    while True:
-        if counter == len(arr) - 1:
-            value = arr[counter]
-            counter = 0
-        else:
-            value = arr[counter]
-            counter += 1
-
-        yield value
+def make_bus_name(route_id, emulator_id):
+    emu_part = "-" + emulator_id if emulator_id else ""
+    num_part = "-" + str(randint(0, 10000))
+    (route_id, emu_part, num_part)
+    return f"{route_id}{emu_part}{num_part}"
 
 
-def get_positions_in_range(coordinates, bus_num):
-    step = max(1, len(coordinates) // bus_num)
+def coordinates_generator(items: Iterable, start_id: int = 0):
+    coordinates = items[start_id:] + items[:start_id]
+    for item in cycle(coordinates):
+        yield item
+
+
+def get_start_ids_in_range(coordinates, bus_num):
     length = len(coordinates)
-    return range(0, length, step)
+    step = max(1, length // bus_num)
+
+    ids = list(range(0, length, step))
+    if bus_num > length:
+        ids = ids * (ceil(bus_num / length))
+    return ids[:bus_num]
 
 
-async def bus_info_generator(
+async def get_bus_info_generator(
+    refresh_timeout, position_generator, name, route_id
+):
+    while True:
+        position = next(position_generator)
+        yield {
+            "busId": name,
+            "lat": position[0],
+            "lng": position[1],
+            "route": route_id,
+        }
+        await trio.sleep(refresh_timeout)
+
+
+def get_bus_info_generator_list(
     refresh_timeout,
     emulator_id,
     buses_per_route,
     bus_info_dict,
 ):
-    buses_start_positions = get_positions_in_range(
+    buses_start_positions = get_start_ids_in_range(
         bus_info_dict["coordinates"],
         buses_per_route,
     )
 
     bus_names = [
-        f"{bus_info_dict['name']}{'-'+str(emulator_id) if emulator_id else ''}{'-'+str(randint(0,10000))}"
+        make_bus_name(bus_info_dict["name"], emulator_id)
         for _ in range(buses_per_route)
     ]
+
     bus_position_generators = [
-        cycle(bus_info_dict["coordinates"], start)
+        coordinates_generator(bus_info_dict["coordinates"], start)
         for start in buses_start_positions
     ]
 
-    while True:
-        for idx in range(buses_per_route):
-            position = next(bus_position_generators[idx])
-            yield {
-                "busId": bus_names[idx],
-                "lat": position[0],
-                "lng": position[1],
-                "route": bus_info_dict["name"],
-            }
-            await trio.sleep(refresh_timeout)
+    return [
+        get_bus_info_generator(
+            refresh_timeout,
+            bus_position_generators[i],
+            bus_names[i],
+            bus_info_dict["name"],
+        )
+        for i in range(buses_per_route)
+    ]
 
 
-async def run_bus(
-    send_channel,
-    emulator_id,
-    refresh_timeout,
-    buses_per_route,
-    name,
-    route,
-):
-    bus_info = bus_info_generator(
-        refresh_timeout,
-        emulator_id,
-        buses_per_route,
-        route,
-    )
+async def run_bus(send_channel, bus_info: async_generator):
     while True:
         try:
             message = await bus_info.__anext__()
             await send_channel.send(message)
         except OSError as ose:
-            logging.info("Connection attempt failed: %s" % ose, file=stderr)
+            logging.info(f"Connection attempt failed: {ose}")
 
 
 async def send_data_to_server(ws, receive_channel):
@@ -93,14 +101,16 @@ async def send_data_to_server(ws, receive_channel):
         await ws.send_message(json.dumps(value))
 
 
-async def send_to_server(url, receive_channel):
+async def start_server_data_share(url, receive_channel):
     while True:
         try:
             async with open_websocket_url(url) as ws:
                 logging.info("connected to server")
                 async with trio.open_nursery() as nursery:
-                    nursery.start_soon(send_data_to_server, ws, receive_channel)
-                    nursery.start_soon(get_response_messages, ws)  
+                    nursery.start_soon(
+                        send_data_to_server, ws, receive_channel
+                    )
+                    nursery.start_soon(get_response_messages, ws)
         except OSError as ose:
             logging.info("Connection attempt failed: %s" % ose, file=stderr)
         except (HandshakeError, ConnectionClosed) as e:
@@ -110,10 +120,10 @@ async def send_to_server(url, receive_channel):
             logging.info("trying to reconnect to server")
 
 
-async def get_response_messages(ws):             
+async def get_response_messages(ws):
     while True:
         message = await ws.get_message()
-        logging.debug(message)    
+        logging.debug(message)
 
 
 async def main(
@@ -136,26 +146,24 @@ async def main(
 
     channels = Channels_container(websockets_number)
     async with trio.open_nursery() as nursery:
-        
+
         for _ in range(websockets_number):
             nursery.start_soon(
-                send_to_server,
+                start_server_data_share,
                 ("ws://" + server),
                 channels.get_receive_channel(),
-        )
-
-        for route in routes:
-            nursery.start_soon(
-                run_bus,
-                channels.get_send_channel(),
-                emulator_id,
-                refresh_timeout,
-                buses_per_route,
-                route["name"],
-                route,
             )
 
-
+        for route in routes:
+            generators = get_bus_info_generator_list(
+                refresh_timeout, emulator_id, buses_per_route, route
+            )
+            for bus_info_gen in generators:
+                nursery.start_soon(
+                    run_bus,
+                    channels.get_send_channel(),
+                    bus_info_gen,
+                )
 
 
 @click.command()
